@@ -163,7 +163,7 @@
                     username = username.trim() + '@' + office_ldap.get_domain(master_config.base);
                 }
 
-                client.bind("uid="username, password, function(err) {
+                client.bind("uid=" + username, password, function(err) {
                     if (err) {
                         winston.error(err.message);
                         return next(new Error('[[error:invalid-password]]'));
