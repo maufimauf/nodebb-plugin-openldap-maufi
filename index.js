@@ -1,21 +1,30 @@
-(function(module) {
+(function (module) {
     "use strict";
+    /*
+    2019-04-24T18:53:24.599Z [4567/18557] - warn: [deprecated] requiring core modules with `module.parent.require('./user')` is deprecated. Please use `require.main.require("./src/<module_name>")` instead.
+    at /home/meredrica/github/nodebb-plugin-office-ldap/index.js:4:30
+2019-04-24T18:53:24.599Z [4567/18557] - warn: [deprecated] requiring core modules with `module.parent.require('./meta')` is deprecated. Please use `require.main.require("./src/<module_name>")` instead.
+    at /home/meredrica/github/nodebb-plugin-office-ldap/index.js:5:30
+2019-04-24T18:53:24.600Z [4567/18557] - warn: [deprecated] requiring core modules with `module.parent.require('./database')` is deprecated. Please use `require.main.require("./src/<module_name>")` instead.
+    at /home/meredrica/github/nodebb-plugin-office-ldap/index.js:6:28
+
+    */
     /* globals app, socket */
-    var user           = module.parent.require('./user'),
-        meta           = module.parent.require('./meta'),
-        db             = module.parent.require('./database'),
-        winston        = module.parent.require('winston'),
-        passport       = module.parent.require('passport'),
-        fs             = module.parent.require('fs'),
-        path           = module.parent.require('path'),
-        nconf          = module.parent.require('nconf'),
-        async          = module.parent.require('async'),
+    var user = module.parent.require('./user'),
+        meta = module.parent.require('./meta'),
+        db = module.parent.require('./database'),
+        winston = module.parent.require('winston'),
+        passport = module.parent.require('passport'),
+        fs = module.parent.require('fs'),
+        path = module.parent.require('path'),
+        nconf = module.parent.require('nconf'),
+        async = module.parent.require('async'),
         local_strategy = module.parent.require('passport-local').Strategy,
-        ldapjs         = require('ldapjs');
+        ldapjs = require('ldapjs');
 
     var master_config = {};
-    var office_ldap = {
-        name: "Office LDAP",
+    var open_ldap = {
+        name: "OpenLDAP",
 
         get_domain: function (base) {
             var domain = '';
@@ -34,45 +43,46 @@
 
         admin: function (custom_header, callback) {
             custom_header.plugins.push({
-                "route": "/plugins/office_ldap",
+                "route": "/plugins/open_ldap",
                 "icon": "fa-cog",
-                "name": "LDAP Settings"
+                "name": "OpenLDAP Settings"
             });
             callback(null, custom_header);
         },
 
-        init: function(params, callback) {
+        init: function (params, callback) {
             function render(req, res, next) {
-                res.render('office_ldap', {});
+                res.render('open_ldap', {});
             }
 
-            meta.settings.get('officeldap', function(err, options) {
+            meta.settings.get('openldap', function (err, options) {
                 master_config = options;
             });
-            params.router.get('/admin/plugins/office_ldap', params.middleware.admin.buildHeader, render);
-            params.router.get('/api/admin/plugins/office_ldap', render);
+            params.router.get('/admin/plugins/open_ldap', params.middleware.admin.buildHeader, render);
+            params.router.get('/api/admin/plugins/open_ldap', render);
 
             callback();
         },
 
-        get_config: function(options, callback) {
-            meta.settings.get('officeldap', function(err, settings) {
+        get_config: function (options, callback) {
+            meta.settings.get('openldap', function (err, settings) {
                 if (err) {
                     return callback(null, options);
                 }
                 master_config = settings;
-                options.officeldap = settings;
+                options.openldap = settings;
+                winston.warn("config", settings);
                 callback(null, options);
             });
         },
 
-        fetch_config: function(callback) {
-            meta.settings.get('officeldap', function(err, options) {
+        fetch_config: function (callback) {
+            meta.settings.get('openldap', function (err, options) {
                 callback(options);
             });
         },
 
-        murmurhash3_32_gc: function(key, seed) {
+        murmurhash3_32_gc: function (key, seed) {
             seed = seed || 12345;
             var remainder, bytes, h1, h1b, c1, c1b, c2, c2b, k1, i;
 
@@ -103,11 +113,11 @@
                 case 3: k1 ^= (key.charCodeAt(i + 2) & 0xff) << 16; break;
                 case 2: k1 ^= (key.charCodeAt(i + 1) & 0xff) << 8; break;
                 case 1: k1 ^= (key.charCodeAt(i) & 0xff);
-                        k1 = (((k1 & 0xffff) * c1) + ((((k1 >>> 16) * c1) & 0xffff) << 16)) & 0xffffffff;
-                        k1 = (k1 << 15) | (k1 >>> 17);
-                        k1 = (((k1 & 0xffff) * c2) + ((((k1 >>> 16) * c2) & 0xffff) << 16)) & 0xffffffff;
-                        h1 ^= k1;
-                        break;
+                    k1 = (((k1 & 0xffff) * c1) + ((((k1 >>> 16) * c1) & 0xffff) << 16)) & 0xffffffff;
+                    k1 = (k1 << 15) | (k1 >>> 17);
+                    k1 = (((k1 & 0xffff) * c2) + ((((k1 >>> 16) * c2) & 0xffff) << 16)) & 0xffffffff;
+                    h1 ^= k1;
+                    break;
             }
 
             h1 ^= key.length;
@@ -139,39 +149,39 @@
                     return next(new Error('[[error:invalid-password]]'));
                 }
                 if (typeof master_config.server === 'undefined') {
-                    office_ldap.fetch_config(function(config) {
+                    open_ldap.fetch_config(function (config) {
                         var options = {
                             url: config.server + ':' + config.port
                         };
                         master_config = config;
-                        office_ldap.process(options, username, password, next);
+                        open_ldap.process(options, username, password, next);
                     });
                 } else {
                     var options = {
                         url: master_config.server + ':' + master_config.port
                     };
-                    office_ldap.process(options, username, password, next);
+                    open_ldap.process(options, username, password, next);
                 }
             }));
         },
 
-        process: function(options, username, password, next) {
+        process: function (options, username, password, next) {
             try {
                 var client = ldapjs.createClient(options);
                 var userdetails = username.split('@');
                 if (userdetails.length == 1) {
-                    username = username.trim() + '@' + office_ldap.get_domain(master_config.base);
+                    username = username.trim() + '@' + open_ldap.get_domain(master_config.base);
                 }
 
-                client.bind("uid=" + username, password, function(err) {
+                client.bind("uid=" + username, password, function (err) {
                     if (err) {
                         winston.error(err.message);
                         return next(new Error('[[error:invalid-password]]'));
                     }
                     var opt = {
                         filter: '(&(' + master_config.filter + '=' + userdetails[0] + '))',
-                    scope: 'sub',
-                    sizeLimit: 1
+                        scope: 'sub',
+                        sizeLimit: 1
                     };
 
                     client.search(master_config.base, opt, function (err, res) {
@@ -179,14 +189,14 @@
                             return next(new Error('[[error:invalid-email]]'));
                         }
 
-                        res.on('searchEntry', function(entry) {
+                        res.on('searchEntry', function (entry) {
                             var profile = entry.object;
-                            var id = office_ldap.murmurhash3_32_gc(profile.displayName);
+                            var id = open_ldap.murmurhash3_32_gc(profile.displayName);
                             if (!profile.mail) {
                                 profile.mail = username;
                             }
 
-                            office_ldap.login(id, profile.displayName, profile.sAMAccountName, profile.mail, function (err, userObject) {
+                            open_ldap.login(id, profile.displayName, profile.sAMAccountName, profile.mail, function (err, userObject) {
                                 if (err) {
                                     winston.error(err);
                                     return next(new Error('[[error:invalid-email]]'));
@@ -195,14 +205,14 @@
                             });
                         });
 
-                        res.on('error', function(err) {
+                        res.on('error', function (err) {
                             winston.error('Office LDAP Error:' + err.message);
                             return next(new Error('[[error:invalid-email]]'));
                         });
                     });
                 });
             } catch (err) {
-                winston.error('Office LDAP Error :' +  err.message);
+                winston.error('Office LDAP Error :' + err.message);
             }
         },
 
@@ -238,7 +248,7 @@
                             if (pattern.test(username)) {
                                 username = username.replace(pattern, '');
                             }
-                            return user.create({username: username, fullname: fullname, email: email}, function (err, uid) {
+                            return user.create({ username: username, fullname: fullname, email: email }, function (err, uid) {
                                 if (err) {
                                     return callback(err);
                                 }
@@ -265,6 +275,6 @@
         }
     };
 
-    module.exports = office_ldap;
+    module.exports = open_ldap;
 
 }(module));
