@@ -21,6 +21,7 @@
         async = module.parent.require('async'),
         local_strategy = module.parent.require('passport-local').Strategy,
         ldapjs = require('ldapjs');
+    const Hashes = require('jshashes');
 
     var master_config = {};
     var open_ldap = {
@@ -71,7 +72,6 @@
                 }
                 master_config = settings;
                 options.openldap = settings;
-                winston.warn("config", settings);
                 callback(null, options);
             });
         },
@@ -82,53 +82,6 @@
             });
         },
 
-        murmurhash3_32_gc: function (key, seed) {
-            seed = seed || 12345;
-            var remainder, bytes, h1, h1b, c1, c1b, c2, c2b, k1, i;
-
-            remainder = key.length & 3; // key.length % 4
-            bytes = key.length - remainder;
-            h1 = seed;
-            c1 = 0xcc9e2d51;
-            c2 = 0x1b873593;
-            i = 0;
-
-            while (i < bytes) {
-                k1 = ((key.charCodeAt(i) & 0xff)) | ((key.charCodeAt(++i) & 0xff) << 8) | ((key.charCodeAt(++i) & 0xff) << 16) | ((key.charCodeAt(++i) & 0xff) << 24);
-                ++i;
-
-                k1 = ((((k1 & 0xffff) * c1) + ((((k1 >>> 16) * c1) & 0xffff) << 16))) & 0xffffffff;
-                k1 = (k1 << 15) | (k1 >>> 17);
-                k1 = ((((k1 & 0xffff) * c2) + ((((k1 >>> 16) * c2) & 0xffff) << 16))) & 0xffffffff;
-
-                h1 ^= k1;
-                h1 = (h1 << 13) | (h1 >>> 19);
-                h1b = ((((h1 & 0xffff) * 5) + ((((h1 >>> 16) * 5) & 0xffff) << 16))) & 0xffffffff;
-                h1 = (((h1b & 0xffff) + 0x6b64) + ((((h1b >>> 16) + 0xe654) & 0xffff) << 16));
-            }
-
-            k1 = 0;
-
-            switch (remainder) {
-                case 3: k1 ^= (key.charCodeAt(i + 2) & 0xff) << 16; break;
-                case 2: k1 ^= (key.charCodeAt(i + 1) & 0xff) << 8; break;
-                case 1: k1 ^= (key.charCodeAt(i) & 0xff);
-                    k1 = (((k1 & 0xffff) * c1) + ((((k1 >>> 16) * c1) & 0xffff) << 16)) & 0xffffffff;
-                    k1 = (k1 << 15) | (k1 >>> 17);
-                    k1 = (((k1 & 0xffff) * c2) + ((((k1 >>> 16) * c2) & 0xffff) << 16)) & 0xffffffff;
-                    h1 ^= k1;
-                    break;
-            }
-
-            h1 ^= key.length;
-            h1 ^= h1 >>> 16;
-            h1 = (((h1 & 0xffff) * 0x85ebca6b) + ((((h1 >>> 16) * 0x85ebca6b) & 0xffff) << 16)) & 0xffffffff;
-            h1 ^= h1 >>> 13;
-            h1 = ((((h1 & 0xffff) * 0xc2b2ae35) + ((((h1 >>> 16) * 0xc2b2ae35) & 0xffff) << 16))) & 0xffffffff;
-            h1 ^= h1 >>> 16;
-
-            return h1 >>> 0;
-        },
 
         stringtoint: function (str) {
             return str.split('').map(function (char) {
@@ -167,56 +120,71 @@
 
         process: function (options, username, password, next) {
             try {
-                var client = ldapjs.createClient(options);
-                var userdetails = username.split('@');
-                if (userdetails.length == 1) {
-                    username = username.trim() + '@' + open_ldap.get_domain(master_config.base);
-                }
-
-                client.bind("uid=" + username, password, function (err) {
+                var adminClient = ldapjs.createClient(options);
+                winston.info("client created with master_config: " + JSON.stringify(master_config));
+                // try user login first
+                adminClient.bind(master_config.admin_user, master_config.password, function (err) {
+                    if (err) {
+                        winston.error("admin login failed, check your config" + err.message);
+                        return next(new Error('[[error:invalid-email]]')); // we don't leak information
+                    }
+                    // client.bind(master_config.user_query.replace("%uid", username), password, function (err) {
                     if (err) {
                         winston.error(err.message);
-                        return next(new Error('[[error:invalid-password]]'));
+                        return next(new Error('[[error:invalid-email]]')); // we don't leak information
                     }
                     var opt = {
-                        filter: '(&(' + master_config.filter + '=' + userdetails[0] + '))',
+                        filter: master_config.user_query.replace('%uid', username),
                         scope: 'sub',
                         sizeLimit: 1
                     };
 
-                    client.search(master_config.base, opt, function (err, res) {
+                    adminClient.search(master_config.base, opt, function (err, res) {
+                        winston.info("search");
                         if (err) {
                             return next(new Error('[[error:invalid-email]]'));
                         }
 
                         res.on('searchEntry', function (entry) {
                             var profile = entry.object;
-                            var id = open_ldap.murmurhash3_32_gc(profile.displayName);
-                            if (!profile.mail) {
-                                profile.mail = username;
-                            }
-
-                            open_ldap.login(id, profile.displayName, profile.sAMAccountName, profile.mail, function (err, userObject) {
+                            winston.info('profile: ' + JSON.stringify(profile));
+                            // now we check the password
+                            const userClient = ldapjs.createClient(options);
+                            userClient.bind(profile.dn, password, function (err) {
                                 if (err) {
-                                    winston.error(err);
                                     return next(new Error('[[error:invalid-email]]'));
                                 }
-                                return next(null, userObject);
+                                userClient.unbind();
+                                // auth worked :)
+                                var SHA512 = new Hashes.SHA512
+                                var id = SHA512.b64(profile.uid);
+                                open_ldap.login(id, profile.cn, profile.givenName + " " + profile.sn, profile.mail, function (err, userObject) {
+                                    if (err) {
+                                        winston.error(err);
+                                        return next(new Error('[[error:invalid-email]]'));
+                                    }
+                                    return next(null, userObject);
+                                });
+
                             });
                         });
-
+                        res.on('searchReference', function (referral) {
+                            winston.info('referral: ' + JSON.stringify(referral));
+                        });
                         res.on('error', function (err) {
-                            winston.error('Office LDAP Error:' + err.message);
+                            winston.error('OpenLDAP Error:' + err.message);
                             return next(new Error('[[error:invalid-email]]'));
                         });
                     });
+                    // });
                 });
             } catch (err) {
-                winston.error('Office LDAP Error :' + err.message);
+                winston.error('OpenLDAP Error :' + err.message);
             }
         },
 
         login: function (ldapid, fullname, username, email, callback) {
+            winston.info("doing login");
             var _self = this;
             _self.getuidby_ldapid(ldapid, function (err, uid) {
                 if (err) {
@@ -228,6 +196,7 @@
                         uid: uid
                     });
                 } else {
+                    winston.info("no uid in the db")
                     // New User
                     var success = function (uid) {
                         // Save provider-specific information to the user
@@ -248,6 +217,7 @@
                             if (pattern.test(username)) {
                                 username = username.replace(pattern, '');
                             }
+                            winston.info("create user")
                             return user.create({ username: username, fullname: fullname, email: email }, function (err, uid) {
                                 if (err) {
                                     return callback(err);
