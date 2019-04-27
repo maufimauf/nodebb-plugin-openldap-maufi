@@ -202,6 +202,7 @@
                         // Save provider-specific information to the user
                         user.setUserField(uid, 'ldapid', ldapid);
                         db.setObjectField('ldapid:uid', ldapid, uid);
+                        // TODO: set groups here #2
                         callback(null, {
                             uid: uid
                         });
