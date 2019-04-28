@@ -15,11 +15,11 @@
 		},
 		{
 			"hook": "filter:config.get",
-			"method": "get_config"
+			"method": "getConfig"
 		},
 		{
 			"hook": "filter:admin.header.build",
-			"method": "admin"
+			"method": "adminHeader"
 		}
 	],
 	"templates": "templates",
