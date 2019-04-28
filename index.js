@@ -1,9 +1,9 @@
 (function (module) {
     "use strict";
     /* globals app, socket */
-    var user = require.main.require('./src/user'),
+    var User = require.main.require('./src/user'),
         Groups = require.main.require('./src/groups'),
-        meta = require.main.require('./src/meta'),
+        Meta = require.main.require('./src/meta'),
         db = require.main.require('./src/database'),
         winston = require.main.require('winston'),
         passport = require.main.require('passport'),
@@ -14,7 +14,10 @@
     var master_config = {};
     var global_ldap_options = {};
     var open_ldap = {
-        name: "OpenLDAP",
+        whitelistFields: (params, callback) => {
+            params.whitelist.push('openldap:data');
+            callback(null, params);
+        },
 
         adminHeader: (custom_header, callback) => {
             custom_header.plugins.push({
@@ -27,7 +30,7 @@
 
         getConfig: (options, callback) => {
             options = options ? options : {};
-            meta.settings.get('openldap', (err, settings) => {
+            Meta.settings.get('openldap', (err, settings) => {
                 if (err) {
                     return callback(err);
                 }
@@ -89,7 +92,6 @@
             }));
         },
 
-
         findLdapGroups: (callback) => {
             open_ldap.adminClient((err, adminClient) => {
                 if (err) {
@@ -129,15 +131,14 @@
         },
 
         createGroup: (ldapGroup, callback) => {
-            // creates the group 
             const groupName = "ldap-" + ldapGroup.cn;
             const groupData = {
                 name: groupName,
                 userTitleEnabled: false,
                 description: 'LDAP Group ' + ldapGroup.cn,
-                // hidden: true,
-                // system: true,
-                // private: true,
+                hidden: 1,
+                system: 1,
+                private: 1,
                 disableJoinRequests: true,
             };
             Groups.create(groupData, () => {
@@ -227,13 +228,18 @@
                     if (pattern.test(username)) {
                         username = username.replace(pattern, '');
                     }
-                    return user.create({ username: username, fullname: fullname, email: profile.mail }, (err, uid) => {
+                    return User.create({ username: username, fullname: fullname, email: profile.mail }, (err, uid) => {
                         if (err) {
                             return callback(err);
                         }
-                        user.setUserField(uid, 'email:confirmed', 1);
+
+                        User.setUserFields(uid, {
+                            'openldap:data': {
+                                uid: profile.uid
+                            },
+                            'email:confirmed': 1
+                        });
                         db.setObjectField('ldapid:uid', profile.uid, uid)
-                        db.setObjectField('ldapid:ldapid', uid, profile.uid)
                         return open_ldap.postLogin(uid, profile.uid, callback);
                     });
                 }
@@ -287,7 +293,7 @@
                 if (err) {
                     return callback(err);
                 }
-                user.getUserData(uid, (err, data) => {
+                User.getUserData(uid, (err, data) => {
                     if (err) {
                         return callback(err);
                     }

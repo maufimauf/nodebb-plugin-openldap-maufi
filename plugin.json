@@ -18,6 +18,10 @@
 			"method": "getConfig"
 		},
 		{
+			"hook": "filter:user.whitelistFields",
+			"method": "whitelistFields"
+		},
+		{
 			"hook": "filter:admin.header.build",
 			"method": "adminHeader"
 		}
