@@ -12,7 +12,6 @@
         ldapjs = require('ldapjs');
 
     var master_config = {};
-    var global_ldap_options = {};
     var open_ldap = {
         whitelistFields: (params, callback) => {
             params.whitelist.push('openldap:data');
@@ -47,35 +46,23 @@
             params.router.get('/admin/plugins/open_ldap', params.middleware.admin.buildHeader, render);
             params.router.get('/api/admin/plugins/open_ldap', render);
 
-            const defaultOptions = {
-                server: "ldap://172.17.0.3",
-                port: "",
-                base: "dc=example,dc=org",
-                admin_user: "cn=admin,dc=example,dc=org",
-                password: "admin",
-                user_query: "(&(|(objectclass=inetOrgPerson))(uid=%uid))",
-                groups_query: "(&(|(objectclass=posixGroup)))",
-                admin_groups: "admins",
-                moderator_groups: "mods"
-            };
-
-
             async.waterfall([
-                (next) => {
-                    open_ldap.getConfig(null, (err, config) => {
-                        if (err) {
-                            return next(err);
-                        }
-                        master_config = config.openldap.server ? config.openldap : defaultOptions;
-                        global_ldap_options.url = master_config.server + ':' + master_config.port
-                        next();
-                    });
-                },
+                open_ldap.updateConfig,
                 open_ldap.findLdapGroups,
                 (groups, next) => {
                     async.each(groups, open_ldap.createGroup, next);
                 }
             ], callback);
+        },
+
+        updateConfig: (callback) => {
+            open_ldap.getConfig(null, (err, config) => {
+                if (err) {
+                    return callback(err);
+                }
+                master_config = config.openldap;
+                callback();
+            });
         },
 
         override: () => {
@@ -93,6 +80,9 @@
         },
 
         findLdapGroups: (callback) => {
+            if (!master_config.groups_query) {
+                return callback(null, []);
+            }
             open_ldap.adminClient((err, adminClient) => {
                 if (err) {
                     return callback(err);
@@ -121,7 +111,7 @@
         },
 
         adminClient: (callback) => {
-            var client = ldapjs.createClient(global_ldap_options);
+            var client = ldapjs.createClient({ url: master_config.server + ':' + master_config.port });
             client.bind(master_config.admin_user, master_config.password, (err) => {
                 if (err) {
                     return callback(new Error('could not bind with admin config ' + err.message));
@@ -147,60 +137,62 @@
         },
 
         process: (username, password, next) => {
-            try {
-                open_ldap.adminClient((err, adminClient) => {
-                    if (err) {
-                        return next(err);
-                    }
-                    var opt = {
-                        filter: master_config.user_query.replace('%uid', username),
-                        sizeLimit: 1,
-                        scope: 'sub',
-                        attributes: ['dn', 'uid', 'sn', 'mail', //these fields are mandatory
-                            // optional fields. used to create the user id/fullname
-                            'givenName', 'displayName',
-                        ]
-                    };
+            async.waterfall([
+                open_ldap.updateConfig,
+                (next) => {
 
-                    adminClient.search(master_config.base, opt, (err, res) => {
+                    open_ldap.adminClient((err, adminClient) => {
                         if (err) {
                             return next(err);
                         }
-                        res.on('searchEntry', (entry) => {
-                            var profile = entry.object;
-                            // now we check the password
-                            const userClient = ldapjs.createClient(global_ldap_options);
-                            userClient.bind(profile.dn, password, (err) => {
-                                userClient.unbind();
+                        var opt = {
+                            filter: master_config.user_query.replace('%uid', username),
+                            sizeLimit: 1,
+                            scope: 'sub',
+                            attributes: ['dn', 'uid', 'sn', 'mail', //these fields are mandatory
+                                // optional fields. used to create the user id/fullname
+                                'givenName', 'displayName',
+                            ]
+                        };
 
-                                if (err) {
-                                    return next(new Error('[[error:invalid-email]]'));
-                                }
+                        adminClient.search(master_config.base, opt, (err, res) => {
+                            if (err) {
+                                return next(err);
+                            }
+                            res.on('searchEntry', (entry) => {
+                                var profile = entry.object;
+                                // now we check the password
+                                const userClient = ldapjs.createClient({ url: master_config.server + ':' + master_config.port });
+                                userClient.bind(profile.dn, password, (err) => {
+                                    userClient.unbind();
 
-                                open_ldap.login(profile, (err, userObject) => {
                                     if (err) {
                                         return next(new Error('[[error:invalid-email]]'));
                                     }
-                                    return next(null, userObject);
+
+                                    open_ldap.login(profile, (err, userObject) => {
+                                        if (err) {
+                                            return next(new Error('[[error:invalid-email]]'));
+                                        }
+                                        return next(null, userObject);
+                                    });
+
                                 });
 
                             });
+                            res.on('end', () => {
+                                adminClient.unbind();
+                            });
+                            res.on('error', (err) => {
+                                adminClient.unbind();
+                                winston.error('OpenLDAP Error:' + err.message);
+                                return next(new Error('[[error:invalid-email]]'));
+                            });
 
                         });
-                        res.on('end', () => {
-                            adminClient.unbind();
-                        });
-                        res.on('error', (err) => {
-                            adminClient.unbind();
-                            winston.error('OpenLDAP Error:' + err.message);
-                            return next(new Error('[[error:invalid-email]]'));
-                        });
-
                     });
-                });
-            } catch (err) {
-                winston.error('OpenLDAP Error :' + err.message);
-            }
+                }
+            ], next);
         },
 
         login: (profile, callback) => {
@@ -234,9 +226,7 @@
                         }
 
                         User.setUserFields(uid, {
-                            'openldap:data': {
-                                uid: profile.uid
-                            },
+                            'openldap:uid:': profile.uid,
                             'email:confirmed': 1
                         });
                         db.setObjectField('ldapid:uid', profile.uid, uid)
@@ -272,11 +262,10 @@
                     }
                     if (members.includes(ldapId)) {
                         const groupsToJoin = [groupId];
-                        console.log("groupId, ldapid, uid", groupId, ldapId, uid);
-                        if (master_config.admin_groups.split(',').includes(ldapGroup.cn)) {
+                        if ((master_config.admin_groups || '').split(',').includes(ldapGroup.cn)) {
                             groupsToJoin.push('administrators');
                         }
-                        if (master_config.moderator_groups.split(',').includes(ldapGroup.cn)) {
+                        if ((master_config.moderator_groups || '').split(',').includes(ldapGroup.cn)) {
                             groupsToJoin.push('Global Moderators');
                         }
                         return Groups.join(groupsToJoin, uid, callback);

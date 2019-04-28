@@ -60,15 +60,25 @@
               </div>
             </div>
 
+
           </div>
         </div>
         <div class="well well-sm">
-          <h4 class="page-header">Account Settings</h4>
+          <h4 class="page-header">Group Settings</h4>
           <div class="row">
             <div class="form-group col-md-12 col-sm-12">
-              <label class="col-sm-3 control-label" for="autovalidate">Auto Validate</label>
-              <div class="col-sm-9 checkbox">
-                <input type="checkbox" id="autovalidate" name="autovalidate" title="Auto Validate">
+              <label class="col-sm-3 control-label" for="base">Administrator Groups</label>
+              <div class="col-sm-9">
+                <input type="text" id="groups_query" required name="admin_groups" title="Administrator Groups"
+                  class="form-control" placeholder="admins, administrators">
+              </div>
+            </div>
+
+            <div class="form-group col-md-12 col-sm-12">
+              <label class="col-sm-3 control-label" for="base">Moderator Groups</label>
+              <div class="col-sm-9">
+                <input type="text" id="groups_query" required name="moderator_groups" title="Moderator Groups"
+                  class="form-control" placeholder="mods, moderators">
               </div>
             </div>
           </div>
