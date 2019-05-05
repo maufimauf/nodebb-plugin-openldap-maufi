@@ -5,12 +5,11 @@
         Groups = require.main.require('./src/groups'),
         Meta = require.main.require('./src/meta'),
         db = require.main.require('./src/database'),
-        winston = require.main.require('winston'),
         passport = require.main.require('passport'),
         async = require.main.require('async'),
         local_strategy = require.main.require('passport-local').Strategy,
         ldapjs = require('ldapjs');
-
+    const controllers = require.main.require('./src/controllers');
     var master_config = {};
     var open_ldap = {
         whitelistFields: (params, callback) => {
@@ -31,7 +30,7 @@
             options = options ? options : {};
             Meta.settings.get('openldap', (err, settings) => {
                 if (err) {
-                    return callback(err);
+                    return callback(err, options);
                 }
                 options.openldap = settings;
                 callback(null, options);
@@ -41,7 +40,7 @@
         init: (params, callback) => {
             const render = (req, res, next) => {
                 res.render('open_ldap', {});
-            }
+            };
 
             params.router.get('/admin/plugins/open_ldap', params.middleware.admin.buildHeader, render);
             params.router.get('/api/admin/plugins/open_ldap', render);
@@ -66,17 +65,23 @@
         },
 
         override: () => {
-            passport.use(new local_strategy({
-                passReqToCallback: true
-            }, (req, username, password, next) => {
-                if (!username) {
-                    return next(new Error('[[error:invalid-email]]'));
+            open_ldap.updateConfig(() => {
+                if (!master_config.server) {
+                    passport.use(new local_strategy({ passReqToCallback: true }, controllers.authentication.localLogin));
+                } else {
+                    passport.use(new local_strategy({
+                        passReqToCallback: true
+                    }, (req, username, password, next) => {
+                        if (!username) {
+                            return next(new Error('[[error:invalid-email]]'));
+                        }
+                        if (!password) {
+                            return next(new Error('[[error:invalid-password]]'));
+                        }
+                        open_ldap.process(req, username, password, next);
+                    }));
                 }
-                if (!password) {
-                    return next(new Error('[[error:invalid-password]]'));
-                }
-                open_ldap.process(username, password, next);
-            }));
+            });
         },
 
         findLdapGroups: (callback) => {
@@ -111,13 +116,21 @@
         },
 
         adminClient: (callback) => {
-            var client = ldapjs.createClient({ url: master_config.server + ':' + master_config.port });
-            client.bind(master_config.admin_user, master_config.password, (err) => {
-                if (err) {
-                    return callback(new Error('could not bind with admin config ' + err.message));
-                }
-                callback(null, client);
-            });
+            try {
+                var client = ldapjs.createClient({
+                    url: master_config.server + ':' + master_config.port,
+                    timeout: 2000
+                });
+
+                client.bind(master_config.admin_user, master_config.password, (err) => {
+                    if (err) {
+                        return callback(new Error('could not bind with admin config ' + err.message));
+                    }
+                    callback(null, client);
+                });
+            } catch (error) {
+                callback(error);
+            }
         },
 
         createGroup: (ldapGroup, callback) => {
@@ -136,11 +149,9 @@
             });
         },
 
-        process: (username, password, next) => {
+        process: (req, username, password, next) => {
             async.waterfall([
-                open_ldap.updateConfig,
                 (next) => {
-
                     open_ldap.adminClient((err, adminClient) => {
                         if (err) {
                             return next(err);
@@ -156,43 +167,51 @@
                         };
 
                         adminClient.search(master_config.base, opt, (err, res) => {
+                            var profile;
                             if (err) {
                                 return next(err);
                             }
                             res.on('searchEntry', (entry) => {
-                                var profile = entry.object;
-                                // now we check the password
-                                const userClient = ldapjs.createClient({ url: master_config.server + ':' + master_config.port });
-                                userClient.bind(profile.dn, password, (err) => {
-                                    userClient.unbind();
-
-                                    if (err) {
-                                        return next(new Error('[[error:invalid-email]]'));
-                                    }
-
-                                    open_ldap.login(profile, (err, userObject) => {
-                                        if (err) {
-                                            return next(new Error('[[error:invalid-email]]'));
-                                        }
-                                        return next(null, userObject);
-                                    });
-
-                                });
-
+                                profile = entry.object;
                             });
                             res.on('end', () => {
                                 adminClient.unbind();
+                                if (profile) {
+                                    const userClient = ldapjs.createClient({ url: master_config.server + ':' + master_config.port });
+                                    userClient.bind(profile.dn, password, (err) => {
+                                        userClient.unbind();
+                                        if (err) {
+                                            return next(new Error('[[error:invalid-email]]'));
+                                        }
+
+                                        open_ldap.login(profile, (err, userObject) => {
+                                            if (err) {
+                                                return next(new Error('[[error:invalid-email]]'));
+                                            }
+                                            return next(null, userObject);
+                                        });
+                                    });
+                                } else {
+                                    return next(new Error('[[error:invalid-email]]'));
+                                }
                             });
                             res.on('error', (err) => {
                                 adminClient.unbind();
-                                winston.error('OpenLDAP Error:' + err.message);
                                 return next(new Error('[[error:invalid-email]]'));
                             });
 
                         });
                     });
                 }
-            ], next);
+            ],
+                (err, user) => {
+                    if (err || !user) {
+                        controllers.authentication.localLogin(req, username, password, next);
+                    } else {
+                        next(null, user);
+                    }
+                }
+            );
         },
 
         login: (profile, callback) => {
