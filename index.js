@@ -45,18 +45,18 @@
             params.router.get('/admin/plugins/open_ldap', params.middleware.admin.buildHeader, render);
             params.router.get('/api/admin/plugins/open_ldap', render);
 
-            try {
-                async.waterfall([
-                    open_ldap.updateConfig,
-                    open_ldap.findLdapGroups,
-                    (groups, next) => {
-                        async.each(groups, open_ldap.createGroup, next);
-                    }
-                ], callback);
-            } catch (e) {
-                console.error('config seems invalid', e);
+            async.waterfall([
+                open_ldap.updateConfig,
+                open_ldap.findLdapGroups,
+                (groups, next) => {
+                    async.each(groups, open_ldap.createGroup, next);
+                }
+            ], (e) => {
+                if (e) {
+                    console.error('config seems invalid', e);
+                }
                 callback();
-            }
+            });
         },
 
         updateConfig: (callback) => {
@@ -127,21 +127,18 @@
         },
 
         adminClient: (callback) => {
-            try {
-                var client = ldapjs.createClient({
-                    url: master_config.server + ':' + master_config.port,
-                    timeout: 2000
-                });
+            var client = ldapjs.createClient({
+                url: master_config.server + ':' + master_config.port,
+                timeout: 2000
+            });
+            client.on('error', error => callback(error));
 
-                client.bind(master_config.admin_user, master_config.password, (err) => {
-                    if (err) {
-                        return callback(new Error('could not bind with admin config ' + err.message));
-                    }
-                    callback(null, client);
-                });
-            } catch (error) {
-                callback(error);
-            }
+            client.bind(master_config.admin_user, master_config.password, (err) => {
+                if (err) {
+                    return callback(new Error('could not bind with admin config ' + err.message));
+                }
+                callback(null, client);
+            });
         },
 
         createGroup: (ldapGroup, callback) => {
