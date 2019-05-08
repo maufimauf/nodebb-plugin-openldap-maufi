@@ -1,6 +1,6 @@
 {
   "name": "nodebb-plugin-sso-openldap",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OpenLDAP Login",
   "main": "index.js",
   "repository": {

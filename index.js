@@ -45,13 +45,18 @@
             params.router.get('/admin/plugins/open_ldap', params.middleware.admin.buildHeader, render);
             params.router.get('/api/admin/plugins/open_ldap', render);
 
-            async.waterfall([
-                open_ldap.updateConfig,
-                open_ldap.findLdapGroups,
-                (groups, next) => {
-                    async.each(groups, open_ldap.createGroup, next);
-                }
-            ], callback);
+            try {
+                async.waterfall([
+                    open_ldap.updateConfig,
+                    open_ldap.findLdapGroups,
+                    (groups, next) => {
+                        async.each(groups, open_ldap.createGroup, next);
+                    }
+                ], callback);
+            } catch (e) {
+                console.error('config seems invalid', e);
+                callback();
+            }
         },
 
         updateConfig: (callback) => {
@@ -65,21 +70,27 @@
         },
 
         override: () => {
+            const local = new local_strategy({ passReqToCallback: true }, controllers.authentication.localLogin)
             open_ldap.updateConfig(() => {
                 if (!master_config.server) {
-                    passport.use(new local_strategy({ passReqToCallback: true }, controllers.authentication.localLogin));
+                    passport.use(local);
                 } else {
-                    passport.use(new local_strategy({
-                        passReqToCallback: true
-                    }, (req, username, password, next) => {
-                        if (!username) {
-                            return next(new Error('[[error:invalid-email]]'));
-                        }
-                        if (!password) {
-                            return next(new Error('[[error:invalid-password]]'));
-                        }
-                        open_ldap.process(req, username, password, next);
-                    }));
+                    try {
+                        passport.use(new local_strategy({
+                            passReqToCallback: true
+                        }, (req, username, password, next) => {
+                            if (!username) {
+                                return next(new Error('[[error:invalid-email]]'));
+                            }
+                            if (!password) {
+                                return next(new Error('[[error:invalid-password]]'));
+                            }
+                            open_ldap.process(req, username, password, next);
+                        }));
+                    } catch (e) {
+                        console.error('error with openldap, falling back to local login', e);
+                        passport.use(local);
+                    }
                 }
             });
         },
