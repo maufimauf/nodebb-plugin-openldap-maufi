@@ -6,6 +6,9 @@ This plugin overrides the default authentication mechanism and tries to authenti
 
 If this fails, the plugin falls back to local login.
 
+# Requirements
+UID must be configured in OpenLDAP
+
 ## Installation
 
     npm install nodebb-plugin-open-ldap
