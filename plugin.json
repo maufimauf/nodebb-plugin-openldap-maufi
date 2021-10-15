@@ -1,5 +1,5 @@
 {
-	"id": "nodebb-plugin-office-ldap",
+	"id": "nodebb-plugin-sso-office-ldap",
 	"name": "OpenLDAP",
 	"description": "An OpenLDAP plugin",
 	"url": "https://github.com/meredrica/nodebb-plugin-office-ldap",

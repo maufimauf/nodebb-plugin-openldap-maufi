@@ -11,6 +11,6 @@ UID must be configured in OpenLDAP
 
 ## Installation
 
-    npm install nodebb-plugin-open-ldap
+    npm install nodebb-plugin-sso-open-ldap
 
 navigate to the settings and fill in the relevant ldap settings
