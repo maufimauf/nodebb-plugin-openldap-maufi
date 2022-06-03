@@ -1,11 +1,11 @@
 {
-  "name": "nodebb-plugin-sso-open-ldap",
-  "version": "1.0.2",
+  "name": "nodebb-plugin-openldap-maufi",
+  "version": "1.0.6",
   "description": "OpenLDAP Login",
   "main": "index.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/meredrica/nodebb-plugin-open-ldap"
+    "url": "https://github.com/maufimauf/nodebb-plugin-openldap-maufi"
   },
   "keywords": [
     "nodebb",
@@ -15,8 +15,8 @@
     "openldap"
   ],
   "author": {
-    "name": "meredrica",
-    "email": "stuff@meredrica.org"
+    "name": "maufimauf",
+    "email": "maufi@ab.mpg.de"
   },
   "license": "MIT",
   "readmeFilename": "README.md",
@@ -24,6 +24,6 @@
     "compatibility": "^1.12.0"
   },
   "dependencies": {
-    "ldapjs": "1.0.2"
+    "ldapjs": "^1.0.6"
   }
 }

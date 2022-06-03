@@ -1,8 +1,8 @@
 {
-	"id": "nodebb-plugin-sso-office-ldap",
-	"name": "OpenLDAP",
+	"id": "nodebb-plugin-openldap-maufi",
+	"name": "OpenLDAP-maufi",
 	"description": "An OpenLDAP plugin",
-	"url": "https://github.com/meredrica/nodebb-plugin-office-ldap",
+	"url": "https://github.com/maufimauf/nodebb-plugin-openldap-maufi",
 	"library": "./index.js",
 	"hooks": [
 		{
