@@ -165,7 +165,7 @@
                             return next(err);
                         }
                         var opt = {
-                            filter: master_config.user_query.replace('%uid', username),
+                            filter: master_config.user_query.replaceAll('%logon%', username),
                             sizeLimit: 1,
                             scope: 'sub',
                             attributes: ['dn', 'uid', 'sn', 'mail', //these fields are mandatory

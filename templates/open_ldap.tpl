@@ -48,7 +48,7 @@
               <label class="col-sm-3 control-label" for="base">User LDAP Query</label>
               <div class="col-sm-9">
                 <input type="text" id="user_query" required name="user_query" title="User LDAP Query"
-                  class="form-control" placeholder="(&(|(objectclass=inetOrgPerson))(uid=%uid))">
+                  class="form-control" placeholder="(&(|(uid=%logon%)(mail=%logon%))(objectclass=inetOrgPerson))">
               </div>
             </div>
 
